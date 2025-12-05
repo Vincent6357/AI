@@ -20,11 +20,12 @@ resource "google_identity_platform_config" "default" {
 
   blocking_functions {
     triggers {
-      event_type = "beforeCreate"
-      # function_uri will be set after Cloud Function deployment
+      event_type   = "beforeCreate"
+      function_uri = ""  # Fournir une chaîne vide si pas de Cloud Function
     }
   }
-}
+}  # <-- ACCOLADE MANQUANTE AJOUTÉE ICI
+
 
 # Identity Platform tenant for multi-tenancy
 resource "google_identity_platform_tenant" "main" {

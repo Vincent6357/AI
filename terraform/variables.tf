@@ -12,7 +12,7 @@ variable "region" {
 variable "location" {
   description = "GCP Location for global resources"
   type        = string
-  default     = "europe"
+  default     = "europewest1"
 }
 
 variable "environment" {
@@ -30,12 +30,12 @@ variable "vertex_ai_location" {
 variable "firebase_config" {
   description = "Firebase configuration for authentication"
   type = object({
-    api_key            = string
-    auth_domain        = string
-    project_id         = string
-    storage_bucket     = string
+    api_key             = string
+    auth_domain         = string
+    project_id          = string
+    storage_bucket      = string
     messaging_sender_id = string
-    app_id            = string
+    app_id              = string
   })
   sensitive = true
 }
@@ -48,4 +48,10 @@ variable "microsoft_auth_config" {
     tenant_id     = string
   })
   sensitive = true
+}
+
+variable "function_uri" {
+  description = "Cloud Function URI for Identity Platform triggers"
+  type        = string
+  default     = ""
 }

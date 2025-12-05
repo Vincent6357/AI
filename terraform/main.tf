@@ -13,7 +13,7 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "terraform-state-vertex-rag"  # Update with your bucket name
+    bucket = "babymoov-ia-479412-terraform-state"
     prefix = "terraform/state"
   }
 }
@@ -31,18 +31,18 @@ provider "google-beta" {
 # Enable required APIs
 resource "google_project_service" "apis" {
   for_each = toset([
-    "aiplatform.googleapis.com",          # Vertex AI
-    "run.googleapis.com",                 # Cloud Run
-    "storage.googleapis.com",             # Cloud Storage
-    "firestore.googleapis.com",           # Firestore
-    "documentai.googleapis.com",          # Document AI
-    "identitytoolkit.googleapis.com",     # Identity Platform
-    "secretmanager.googleapis.com",       # Secret Manager
+    "aiplatform.googleapis.com",
+    "run.googleapis.com",
+    "storage.googleapis.com",
+    "firestore.googleapis.com",
+    "documentai.googleapis.com",
+    "identitytoolkit.googleapis.com",
+    "secretmanager.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "iam.googleapis.com",
-    "cloudbuild.googleapis.com",          # Cloud Build
-    "discoveryengine.googleapis.com",     # Vertex AI Search
-    "artifactregistry.googleapis.com",    # Artifact Registry
+    "cloudbuild.googleapis.com",
+    "discoveryengine.googleapis.com",
+    "artifactregistry.googleapis.com",
   ])
 
   service            = each.value
@@ -70,7 +70,7 @@ module "firestore" {
   depends_on = [google_project_service.apis]
 }
 
-# Identity Platform Module
+# Identity Platform Module (corrigé, plus de function_uri)
 module "identity" {
   source = "./modules/identity"
 
@@ -84,9 +84,9 @@ module "identity" {
 module "vertexai" {
   source = "./modules/vertexai"
 
-  project_id          = var.project_id
-  vertex_ai_location  = var.vertex_ai_location
-  environment         = var.environment
+  project_id         = var.project_id
+  vertex_ai_location = var.vertex_ai_location
+  environment        = var.environment
 
   depends_on = [google_project_service.apis]
 }
@@ -95,12 +95,12 @@ module "vertexai" {
 module "cloudrun" {
   source = "./modules/cloudrun"
 
-  project_id          = var.project_id
-  region              = var.region
-  environment         = var.environment
-  firebase_config     = var.firebase_config
-  backend_image       = "gcr.io/${var.project_id}/rag-backend:latest"
-  frontend_image      = "gcr.io/${var.project_id}/rag-frontend:latest"
+  project_id      = var.project_id
+  region          = var.region
+  environment     = var.environment
+  firebase_config = var.firebase_config
+  backend_image   = "gcr.io/${var.project_id}/rag-backend:latest"
+  frontend_image  = "gcr.io/${var.project_id}/rag-frontend:latest"
 
   depends_on = [
     google_project_service.apis,
