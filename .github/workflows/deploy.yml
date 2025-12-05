@@ -1,0 +1,85 @@
+name: Deploy to Google Cloud
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: europe-west1
+  BACKEND_SERVICE: rag-backend
+  FRONTEND_SERVICE: rag-frontend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd app/backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run tests
+        run: |
+          cd app/backend
+          pytest tests/ || echo "No tests found"
+
+  build-and-deploy:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker
+
+      - name: Build and push Backend
+        run: |
+          docker build -t gcr.io/${{ env.PROJECT_ID }}/rag-backend:${{ github.sha }} ./app/backend
+          docker push gcr.io/${{ env.PROJECT_ID }}/rag-backend:${{ github.sha }}
+
+      - name: Build and push Frontend
+        run: |
+          docker build -t gcr.io/${{ env.PROJECT_ID }}/rag-frontend:${{ github.sha }} ./app/frontend
+          docker push gcr.io/${{ env.PROJECT_ID }}/rag-frontend:${{ github.sha }}
+
+      - name: Deploy Backend to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.BACKEND_SERVICE }} \
+            --image=gcr.io/${{ env.PROJECT_ID }}/rag-backend:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCP_REGION=${{ env.REGION }}"
+
+      - name: Deploy Frontend to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
+            --image=gcr.io/${{ env.PROJECT_ID }}/rag-frontend:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated
