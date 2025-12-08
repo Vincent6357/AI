@@ -16,6 +16,10 @@ RUN chmod -R +x node_modules/.bin
 # Build the application (outputs to ./dist)
 RUN npm run build
 
+# Verify build succeeded
+RUN ls -la ./dist && \
+    test -f ./dist/index.html || (echo "Build failed: index.html not found" && exit 1)
+
 # Production stage
 FROM nginx:alpine
 
