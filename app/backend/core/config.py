@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     FIREBASE_MESSAGING_SENDER_ID: str = os.getenv("FIREBASE_MESSAGING_SENDER_ID", "")
     FIREBASE_APP_ID: str = os.getenv("FIREBASE_APP_ID", "")
 
+    # Microsoft OAuth Configuration
+    MICROSOFT_CLIENT_ID: str = os.getenv("MICROSOFT_CLIENT_ID", "")
+    MICROSOFT_TENANT_ID: str = os.getenv("MICROSOFT_TENANT_ID", "")
+
+    # Auth settings
+    USE_LOGIN: bool = os.getenv("USE_LOGIN", "true").lower() == "true"
+    REQUIRE_ACCESS_CONTROL: bool = os.getenv("REQUIRE_ACCESS_CONTROL", "false").lower() == "true"
+    ENABLE_UNAUTHENTICATED_ACCESS: bool = os.getenv("ENABLE_UNAUTHENTICATED_ACCESS", "true").lower() == "true"
+
     # Storage Configuration
     MAIN_BUCKET_NAME: Optional[str] = os.getenv("MAIN_BUCKET_NAME")
     TEMP_UPLOADS_BUCKET: Optional[str] = os.getenv("TEMP_UPLOADS_BUCKET")

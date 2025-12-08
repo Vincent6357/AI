@@ -2,11 +2,12 @@
 Main FastAPI application
 """
 import logging
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from typing import Optional
+from fastapi.responses import StreamingResponse, JSONResponse
+from typing import Optional, Any
 import json
+import uuid
 
 from core.config import get_settings
 from models.user import User, UserRole
@@ -80,6 +81,284 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "vertex-rag-backend"}
+
+
+# Auth setup endpoint - required by frontend for MSAL configuration
+@app.get("/auth_setup")
+async def auth_setup():
+    """Return authentication configuration for the frontend"""
+    # Build MSAL configuration
+    authority = f"https://login.microsoftonline.com/{settings.MICROSOFT_TENANT_ID}" if settings.MICROSOFT_TENANT_ID else ""
+
+    return {
+        "useLogin": settings.USE_LOGIN,
+        "requireAccessControl": settings.REQUIRE_ACCESS_CONTROL,
+        "enableUnauthenticatedAccess": settings.ENABLE_UNAUTHENTICATED_ACCESS,
+        "msalConfig": {
+            "auth": {
+                "clientId": settings.MICROSOFT_CLIENT_ID,
+                "authority": authority,
+                "redirectUri": "/",
+                "postLogoutRedirectUri": "/",
+                "navigateToLoginRequestUrl": True
+            },
+            "cache": {
+                "cacheLocation": "sessionStorage",
+                "storeAuthStateInCookie": False
+            }
+        },
+        "loginRequest": {
+            "scopes": [".default"]
+        },
+        "tokenRequest": {
+            "scopes": [f"api://{settings.MICROSOFT_CLIENT_ID}/.default"] if settings.MICROSOFT_CLIENT_ID else []
+        }
+    }
+
+
+# Config endpoint - return app configuration
+@app.get("/config")
+async def get_config():
+    """Return application configuration"""
+    return {
+        "defaultReasoningEffort": "medium",
+        "defaultRetrievalReasoningEffort": "medium",
+        "showMultimodalOptions": False,
+        "showSemanticRankerOption": False,
+        "showQueryRewritingOption": False,
+        "showReasoningEffortOption": False,
+        "streamingEnabled": True,
+        "showVectorOption": True,
+        "showUserUpload": True,
+        "showLanguagePicker": False,
+        "showSpeechInput": False,
+        "showSpeechOutputBrowser": False,
+        "showSpeechOutputAzure": False,
+        "showChatHistoryBrowser": True,
+        "showChatHistoryCosmos": False,
+        "showAgenticRetrievalOption": False,
+        "ragSearchTextEmbeddings": True,
+        "ragSearchImageEmbeddings": False,
+        "ragSendTextSources": True,
+        "ragSendImageSources": False,
+        "webSourceEnabled": False,
+        "sharepointSourceEnabled": False
+    }
+
+
+# .auth/me endpoint - Azure App Services authentication pattern
+@app.get("/.auth/me")
+async def auth_me():
+    """Return empty array for unauthenticated users (Azure App Services pattern)"""
+    return []
+
+
+# Frontend-compatible chat endpoints
+
+def create_chat_response(content: str, session_state: Any = None):
+    """Create a response in the format expected by the frontend"""
+    return {
+        "message": {"content": content, "role": "assistant"},
+        "delta": {"content": "", "role": "assistant"},
+        "context": {
+            "data_points": {
+                "text": [],
+                "images": [],
+                "citations": [],
+                "citation_activity_details": {},
+                "external_results_metadata": []
+            },
+            "followup_questions": None,
+            "thoughts": []
+        },
+        "session_state": session_state or str(uuid.uuid4())
+    }
+
+
+@app.post("/ask")
+async def ask_endpoint(request: Request):
+    """Ask endpoint - single question/answer"""
+    try:
+        body = await request.json()
+        messages = body.get("messages", [])
+
+        if not messages:
+            return create_chat_response("No message provided")
+
+        # Get the last user message
+        user_message = messages[-1].get("content", "") if messages else ""
+
+        # For now, return a placeholder response
+        # TODO: Integrate with actual RAG/Vertex AI service
+        response_content = f"This is a demo response to your question: '{user_message}'. The RAG system is being configured."
+
+        return create_chat_response(response_content, body.get("session_state"))
+
+    except Exception as e:
+        logger.error(f"Error in /ask: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+@app.post("/chat")
+async def chat_endpoint(request: Request):
+    """Chat endpoint - non-streaming"""
+    try:
+        body = await request.json()
+        messages = body.get("messages", [])
+
+        if not messages:
+            return create_chat_response("No message provided")
+
+        user_message = messages[-1].get("content", "") if messages else ""
+
+        response_content = f"Response to: '{user_message}'. The chat system is being configured."
+
+        return create_chat_response(response_content, body.get("session_state"))
+
+    except Exception as e:
+        logger.error(f"Error in /chat: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+@app.post("/chat/stream")
+async def chat_stream_endpoint(request: Request):
+    """Chat streaming endpoint - Server-Sent Events"""
+    try:
+        body = await request.json()
+        messages = body.get("messages", [])
+        session_state = body.get("session_state") or str(uuid.uuid4())
+
+        user_message = messages[-1].get("content", "") if messages else ""
+
+        async def generate_stream():
+            # Send initial response structure
+            response_content = f"Response to: '{user_message}'. Streaming chat is being configured."
+
+            # Stream the response in chunks
+            words = response_content.split()
+            for i, word in enumerate(words):
+                chunk = {
+                    "delta": {"content": word + " ", "role": "assistant"},
+                    "context": {
+                        "data_points": {"text": [], "images": [], "citations": []},
+                        "followup_questions": None,
+                        "thoughts": []
+                    },
+                    "session_state": session_state
+                }
+                yield json.dumps(chunk) + "\n"
+
+            # Send final message
+            final = {
+                "message": {"content": response_content, "role": "assistant"},
+                "delta": {"content": "", "role": "assistant"},
+                "context": {
+                    "data_points": {
+                        "text": [],
+                        "images": [],
+                        "citations": [],
+                        "citation_activity_details": {},
+                        "external_results_metadata": []
+                    },
+                    "followup_questions": None,
+                    "thoughts": []
+                },
+                "session_state": session_state
+            }
+            yield json.dumps(final) + "\n"
+
+        return StreamingResponse(
+            generate_stream(),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error in /chat/stream: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+@app.post("/speech")
+async def speech_endpoint():
+    """Speech synthesis endpoint - returns 400 as not enabled"""
+    return JSONResponse(
+        status_code=400,
+        content={"message": "Speech synthesis is not enabled"}
+    )
+
+
+@app.post("/upload")
+async def upload_endpoint(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
+    """Upload file endpoint"""
+    # TODO: Implement file upload to Cloud Storage
+    return {"message": f"File '{file.filename}' upload endpoint. Implementation pending."}
+
+
+@app.post("/delete_uploaded")
+async def delete_uploaded_endpoint(request: Request, authorization: Optional[str] = Header(None)):
+    """Delete uploaded file endpoint"""
+    body = await request.json()
+    filename = body.get("filename", "")
+    return {"message": f"Delete endpoint for '{filename}'. Implementation pending."}
+
+
+@app.get("/list_uploaded")
+async def list_uploaded_endpoint(authorization: Optional[str] = Header(None)):
+    """List uploaded files endpoint"""
+    # TODO: List files from Cloud Storage
+    return []
+
+
+@app.post("/chat_history")
+async def post_chat_history(request: Request, authorization: Optional[str] = Header(None)):
+    """Save chat history"""
+    body = await request.json()
+    return {"id": str(uuid.uuid4()), "message": "Chat history saved"}
+
+
+@app.get("/chat_history/sessions")
+async def get_chat_history_list(
+    count: int = 10,
+    continuationToken: Optional[str] = None,
+    authorization: Optional[str] = Header(None)
+):
+    """Get chat history list"""
+    return {"sessions": [], "continuation_token": None}
+
+
+@app.get("/chat_history/sessions/{session_id}")
+async def get_chat_history(session_id: str, authorization: Optional[str] = Header(None)):
+    """Get specific chat history session"""
+    return {"id": session_id, "entra_oid": "", "answers": []}
+
+
+@app.delete("/chat_history/sessions/{session_id}")
+async def delete_chat_history(session_id: str, authorization: Optional[str] = Header(None)):
+    """Delete chat history session"""
+    return {"message": "Deleted"}
+
+
+@app.get("/content/{path:path}")
+async def get_content(path: str, authorization: Optional[str] = Header(None)):
+    """Get content/citations endpoint"""
+    # TODO: Implement content retrieval from Cloud Storage
+    return JSONResponse(
+        status_code=404,
+        content={"message": f"Content '{path}' not found"}
+    )
 
 
 # User routes
