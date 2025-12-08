@@ -54,11 +54,45 @@ interface AuthSetup {
 
 // Fetch the auth setup JSON data from the API if not already cached
 async function fetchAuthSetup(): Promise<AuthSetup> {
-    const response = await fetch("/auth_setup");
-    if (!response.ok) {
-        throw new Error(`auth setup response was not ok: ${response.status}`);
+    try {
+        const response = await fetch("/auth_setup");
+        if (!response.ok) {
+            console.warn(`auth setup response was not ok: ${response.status}, using defaults`);
+            return getDefaultAuthSetup();
+        }
+        return await response.json();
+    } catch (error) {
+        console.warn("Failed to fetch auth setup, using defaults:", error);
+        return getDefaultAuthSetup();
     }
-    return await response.json();
+}
+
+// Default auth setup when backend is not available
+function getDefaultAuthSetup(): AuthSetup {
+    return {
+        useLogin: false,
+        requireAccessControl: false,
+        enableUnauthenticatedAccess: true,
+        msalConfig: {
+            auth: {
+                clientId: "",
+                authority: "",
+                redirectUri: "/",
+                postLogoutRedirectUri: "/",
+                navigateToLoginRequestUrl: true
+            },
+            cache: {
+                cacheLocation: "sessionStorage",
+                storeAuthStateInCookie: false
+            }
+        },
+        loginRequest: {
+            scopes: []
+        },
+        tokenRequest: {
+            scopes: []
+        }
+    };
 }
 
 const authSetup = await fetchAuthSetup();
@@ -161,7 +195,15 @@ const getAppServicesToken = (): Promise<AppServicesToken | null> => {
     });
 };
 
-export const isUsingAppServicesLogin = (await getAppServicesToken()) != null;
+// Try to get app services token, but don't block app loading if it fails
+let isUsingAppServicesLogin = false;
+try {
+    isUsingAppServicesLogin = (await getAppServicesToken()) != null;
+} catch (error) {
+    console.warn("Failed to check app services login:", error);
+    isUsingAppServicesLogin = false;
+}
+export { isUsingAppServicesLogin };
 
 // Sign out of app services
 // Learn more at https://learn.microsoft.com/azure/app-service/configure-authentication-customize-sign-in-out#sign-out-of-a-session
