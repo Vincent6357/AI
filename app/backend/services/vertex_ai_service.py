@@ -5,8 +5,16 @@ import logging
 from typing import AsyncGenerator, Optional
 import vertexai
 from vertexai.generative_models import GenerativeModel, Content, Part
-from vertexai.preview import rag
 from google.cloud import aiplatform
+
+# RAG API is optional - may not be available in all vertexai versions
+try:
+    from vertexai.preview import rag
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+    rag = None
+    logging.warning("vertexai.preview.rag not available - RAG features will be disabled")
 
 from core.config import get_settings
 from models.agent import Agent
@@ -127,6 +135,10 @@ INSTRUCTIONS:
         Returns:
             Corpus ID
         """
+        if not RAG_AVAILABLE:
+            logger.warning("RAG API not available, skipping corpus creation")
+            return f"mock-corpus-{agent_id}"
+
         try:
             corpus = rag.create_corpus(
                 display_name=f"agent-{agent_id}-{name}",
@@ -153,6 +165,10 @@ INSTRUCTIONS:
             chunk_size: Chunk size for splitting
             chunk_overlap: Overlap between chunks
         """
+        if not RAG_AVAILABLE:
+            logger.warning("RAG API not available, skipping file import")
+            return
+
         try:
             rag.import_files(
                 corpus_name=corpus_id,
@@ -183,6 +199,10 @@ INSTRUCTIONS:
         Returns:
             List of context dicts
         """
+        if not RAG_AVAILABLE:
+            logger.warning("RAG API not available, returning empty contexts")
+            return []
+
         try:
             response = rag.retrieval_query(
                 rag_resources=[
