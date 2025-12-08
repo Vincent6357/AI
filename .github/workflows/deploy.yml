@@ -101,6 +101,6 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
-            --memory=512Mi \
+            --memory=1Gi \
             --cpu=1 \
             --set-env-vars="BACKEND_URL=${{ steps.backend-url.outputs.url }}"
