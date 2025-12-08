@@ -23,12 +23,19 @@ RUN ls -la ./dist && \
 # Production stage
 FROM nginx:alpine
 
+# Install gettext for envsubst
+RUN apk add --no-cache gettext
+
 # Copy built files from the build stage
 # The build outputs to ./dist relative to /app
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy nginx configuration as template (envsubst will process it)
+# Copy nginx configuration template
 COPY nginx.conf /etc/nginx/templates/default.conf.template
+
+# Copy custom entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Cloud Run requires port 8080
 EXPOSE 8080
@@ -37,4 +44,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:8080/ || exit 1
 
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
