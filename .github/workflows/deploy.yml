@@ -74,7 +74,25 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
-            --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCP_REGION=${{ env.REGION }}"
+            --memory=2Gi \
+            --cpu=1 \
+            --timeout=300 \
+            --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }}" \
+            --set-env-vars="GCP_REGION=${{ env.REGION }}" \
+            --set-env-vars="ENVIRONMENT=prod" \
+            --set-env-vars="CORS_ORIGINS=*" \
+            --set-env-vars="USE_LOGIN=false" \
+            --set-env-vars="REQUIRE_ACCESS_CONTROL=false" \
+            --set-env-vars="ENABLE_UNAUTHENTICATED_ACCESS=true"
+
+      - name: Get Backend URL
+        id: backend-url
+        run: |
+          BACKEND_URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE }} \
+            --region=${{ env.REGION }} \
+            --format='value(status.url)')
+          echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
+          echo "Backend URL: $BACKEND_URL"
 
       - name: Deploy Frontend to Cloud Run
         run: |
@@ -82,4 +100,7 @@ jobs:
             --image=gcr.io/${{ env.PROJECT_ID }}/rag-frontend:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --platform=managed \
-            --allow-unauthenticated
+            --allow-unauthenticated \
+            --memory=512Mi \
+            --cpu=1 \
+            --set-env-vars="BACKEND_URL=${{ steps.backend-url.outputs.url }}"
