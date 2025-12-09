@@ -127,19 +127,19 @@ async def get_config():
         "showSemanticRankerOption": False,
         "showQueryRewritingOption": False,
         "showReasoningEffortOption": False,
-        "streamingEnabled": True,
-        "showVectorOption": True,
-        "showUserUpload": True,
+        "streamingEnabled": False,  # Disabled for now - non-streaming works more reliably
+        "showVectorOption": False,
+        "showUserUpload": False,  # Disabled until storage is configured
         "showLanguagePicker": False,
         "showSpeechInput": False,
         "showSpeechOutputBrowser": False,
         "showSpeechOutputAzure": False,
-        "showChatHistoryBrowser": True,
+        "showChatHistoryBrowser": False,  # Disabled until database is configured
         "showChatHistoryCosmos": False,
         "showAgenticRetrievalOption": False,
-        "ragSearchTextEmbeddings": True,
+        "ragSearchTextEmbeddings": False,
         "ragSearchImageEmbeddings": False,
-        "ragSendTextSources": True,
+        "ragSendTextSources": False,
         "ragSendImageSources": False,
         "webSourceEnabled": False,
         "sharepointSourceEnabled": False
