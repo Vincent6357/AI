@@ -11,6 +11,7 @@ env:
   REGION: europe-west1
   BACKEND_SERVICE: rag-backend
   FRONTEND_SERVICE: rag-frontend
+  ARTIFACT_REGISTRY: europe-west1-docker.pkg.dev
 
 jobs:
   test:
@@ -54,8 +55,19 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker
-        run: gcloud auth configure-docker
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
+
+      - name: Create Artifact Registry repository if not exists
+        run: |
+          gcloud artifacts repositories describe rag-app \
+            --location=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} 2>/dev/null || \
+          gcloud artifacts repositories create rag-app \
+            --repository-format=docker \
+            --location=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --description="RAG Application Docker images"
 
       - name: Create Cloud Storage buckets if not exist
         run: |
@@ -74,18 +86,18 @@ jobs:
 
       - name: Build and push Backend
         run: |
-          docker build -t gcr.io/${{ env.PROJECT_ID }}/rag-backend:${{ github.sha }} ./app/backend
-          docker push gcr.io/${{ env.PROJECT_ID }}/rag-backend:${{ github.sha }}
+          docker build -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/rag-app/backend:${{ github.sha }} ./app/backend
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/rag-app/backend:${{ github.sha }}
 
       - name: Build and push Frontend
         run: |
-          docker build -t gcr.io/${{ env.PROJECT_ID }}/rag-frontend:${{ github.sha }} ./app/frontend
-          docker push gcr.io/${{ env.PROJECT_ID }}/rag-frontend:${{ github.sha }}
+          docker build -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/rag-app/frontend:${{ github.sha }} ./app/frontend
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/rag-app/frontend:${{ github.sha }}
 
       - name: Deploy Backend to Cloud Run
         run: |
           gcloud run deploy ${{ env.BACKEND_SERVICE }} \
-            --image=gcr.io/${{ env.PROJECT_ID }}/rag-backend:${{ github.sha }} \
+            --image=${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/rag-app/backend:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
@@ -124,7 +136,7 @@ jobs:
       - name: Deploy Frontend to Cloud Run
         run: |
           gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
-            --image=gcr.io/${{ env.PROJECT_ID }}/rag-frontend:${{ github.sha }} \
+            --image=${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/rag-app/frontend:${{ github.sha }} \
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
