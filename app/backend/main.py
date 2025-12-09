@@ -17,6 +17,7 @@ from services.authentication import AuthenticationService
 from services.agent_service import AgentService
 from services.document_service import DocumentService
 from services.chat_service import ChatService
+from services.vertex_ai_service import VertexAIService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -46,6 +47,14 @@ auth_service = AuthenticationService()
 agent_service = AgentService()
 document_service = DocumentService()
 chat_service = ChatService()
+
+# Initialize Vertex AI service (may fail if credentials are not available)
+vertex_ai_service = None
+try:
+    vertex_ai_service = VertexAIService()
+    logger.info("Vertex AI service initialized successfully")
+except Exception as e:
+    logger.warning(f"Vertex AI service initialization failed: {e}. AI features will be limited.")
 
 
 # Dependency for authentication
@@ -81,6 +90,27 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "vertex-rag-backend"}
+
+
+# Debug endpoint to check configuration
+@app.get("/debug/config")
+async def debug_config():
+    """Debug endpoint to check configuration status"""
+    return {
+        "gcp_project_id": bool(settings.GCP_PROJECT_ID),
+        "gcp_project_id_value": settings.GCP_PROJECT_ID[:10] + "..." if settings.GCP_PROJECT_ID else None,
+        "gcp_region": settings.GCP_REGION,
+        "vertex_ai_location": settings.VERTEX_AI_LOCATION,
+        "vertex_ai_service_initialized": vertex_ai_service is not None,
+        "default_model": settings.DEFAULT_MODEL,
+        "microsoft_client_id_configured": bool(settings.MICROSOFT_CLIENT_ID),
+        "microsoft_tenant_id_configured": bool(settings.MICROSOFT_TENANT_ID),
+        "firebase_api_key_configured": bool(settings.FIREBASE_API_KEY),
+        "firebase_project_id": settings.FIREBASE_PROJECT_ID,
+        "use_login": settings.USE_LOGIN,
+        "main_bucket": settings.MAIN_BUCKET_NAME,
+        "cors_origins": settings.CORS_ORIGINS,
+    }
 
 
 # Auth setup endpoint - required by frontend for MSAL configuration
@@ -188,9 +218,30 @@ async def ask_endpoint(request: Request):
         # Get the last user message
         user_message = messages[-1].get("content", "") if messages else ""
 
-        # For now, return a placeholder response
-        # TODO: Integrate with actual RAG/Vertex AI service
-        response_content = f"This is a demo response to your question: '{user_message}'. The RAG system is being configured."
+        # Use Vertex AI if available
+        if vertex_ai_service and settings.GCP_PROJECT_ID:
+            try:
+                from vertexai.generative_models import GenerativeModel
+
+                model = GenerativeModel(
+                    model_name=settings.DEFAULT_MODEL,
+                    system_instruction="Tu es un assistant intelligent. Réponds de manière précise et utile en français."
+                )
+
+                response = model.generate_content(
+                    user_message,
+                    generation_config={
+                        "temperature": settings.DEFAULT_TEMPERATURE,
+                        "max_output_tokens": settings.DEFAULT_MAX_TOKENS,
+                    }
+                )
+
+                response_content = response.text
+            except Exception as e:
+                logger.error(f"Vertex AI error: {e}")
+                response_content = f"Erreur lors de la génération de la réponse: {str(e)}"
+        else:
+            response_content = "Le service Vertex AI n'est pas configuré. Veuillez vérifier la configuration GCP."
 
         return create_chat_response(response_content, body.get("session_state"))
 
@@ -214,7 +265,45 @@ async def chat_endpoint(request: Request):
 
         user_message = messages[-1].get("content", "") if messages else ""
 
-        response_content = f"Response to: '{user_message}'. The chat system is being configured."
+        # Use Vertex AI if available
+        if vertex_ai_service and settings.GCP_PROJECT_ID:
+            try:
+                from vertexai.generative_models import GenerativeModel, Content, Part
+
+                model = GenerativeModel(
+                    model_name=settings.DEFAULT_MODEL,
+                    system_instruction="Tu es un assistant intelligent. Réponds de manière précise et utile en français."
+                )
+
+                # Build conversation history
+                contents = []
+                for msg in messages[:-1]:  # All messages except the last
+                    role = "user" if msg.get("role") == "user" else "model"
+                    contents.append(Content(
+                        role=role,
+                        parts=[Part.from_text(msg.get("content", ""))]
+                    ))
+
+                # Add current message
+                contents.append(Content(
+                    role="user",
+                    parts=[Part.from_text(user_message)]
+                ))
+
+                response = model.generate_content(
+                    contents,
+                    generation_config={
+                        "temperature": settings.DEFAULT_TEMPERATURE,
+                        "max_output_tokens": settings.DEFAULT_MAX_TOKENS,
+                    }
+                )
+
+                response_content = response.text
+            except Exception as e:
+                logger.error(f"Vertex AI error: {e}")
+                response_content = f"Erreur lors de la génération de la réponse: {str(e)}"
+        else:
+            response_content = "Le service Vertex AI n'est pas configuré. Veuillez vérifier la configuration GCP."
 
         return create_chat_response(response_content, body.get("session_state"))
 
@@ -237,26 +326,82 @@ async def chat_stream_endpoint(request: Request):
         user_message = messages[-1].get("content", "") if messages else ""
 
         async def generate_stream():
-            # Send initial response structure
-            response_content = f"Response to: '{user_message}'. Streaming chat is being configured."
+            full_response = ""
 
-            # Stream the response in chunks
-            words = response_content.split()
-            for i, word in enumerate(words):
-                chunk = {
-                    "delta": {"content": word + " ", "role": "assistant"},
+            # Use Vertex AI if available
+            if vertex_ai_service and settings.GCP_PROJECT_ID:
+                try:
+                    from vertexai.generative_models import GenerativeModel, Content, Part
+
+                    model = GenerativeModel(
+                        model_name=settings.DEFAULT_MODEL,
+                        system_instruction="Tu es un assistant intelligent. Réponds de manière précise et utile en français."
+                    )
+
+                    # Build conversation history
+                    contents = []
+                    for msg in messages[:-1]:
+                        role = "user" if msg.get("role") == "user" else "model"
+                        contents.append(Content(
+                            role=role,
+                            parts=[Part.from_text(msg.get("content", ""))]
+                        ))
+
+                    contents.append(Content(
+                        role="user",
+                        parts=[Part.from_text(user_message)]
+                    ))
+
+                    # Stream response from Vertex AI
+                    response = model.generate_content(
+                        contents,
+                        generation_config={
+                            "temperature": settings.DEFAULT_TEMPERATURE,
+                            "max_output_tokens": settings.DEFAULT_MAX_TOKENS,
+                        },
+                        stream=True
+                    )
+
+                    for chunk in response:
+                        if chunk.text:
+                            full_response += chunk.text
+                            yield json.dumps({
+                                "delta": {"content": chunk.text, "role": "assistant"},
+                                "context": {
+                                    "data_points": {"text": [], "images": [], "citations": []},
+                                    "followup_questions": None,
+                                    "thoughts": []
+                                },
+                                "session_state": session_state
+                            }) + "\n"
+
+                except Exception as e:
+                    logger.error(f"Vertex AI streaming error: {e}")
+                    full_response = f"Erreur lors de la génération de la réponse: {str(e)}"
+                    yield json.dumps({
+                        "delta": {"content": full_response, "role": "assistant"},
+                        "context": {
+                            "data_points": {"text": [], "images": [], "citations": []},
+                            "followup_questions": None,
+                            "thoughts": []
+                        },
+                        "session_state": session_state
+                    }) + "\n"
+            else:
+                full_response = "Le service Vertex AI n'est pas configuré. Veuillez vérifier la configuration GCP."
+                yield json.dumps({
+                    "delta": {"content": full_response, "role": "assistant"},
                     "context": {
                         "data_points": {"text": [], "images": [], "citations": []},
                         "followup_questions": None,
                         "thoughts": []
                     },
                     "session_state": session_state
-                }
-                yield json.dumps(chunk) + "\n"
+                }) + "\n"
 
             # Send final message
-            final = {
-                "message": {"content": response_content, "role": "assistant"},
+            yield json.dumps({
+                "message": {"content": full_response, "role": "assistant"},
                 "delta": {"content": "", "role": "assistant"},
                 "context": {
                     "data_points": {
@@ -270,8 +415,7 @@ async def chat_stream_endpoint(request: Request):
                     "thoughts": []
                 },
                 "session_state": session_state
-            }
-            yield json.dumps(final) + "\n"
+            }) + "\n"
 
         return StreamingResponse(
             generate_stream(),
