@@ -94,6 +94,8 @@ jobs:
             --timeout=300 \
             --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }}" \
             --set-env-vars="GCP_REGION=${{ env.REGION }}" \
+            --set-env-vars="GCP_LOCATION=europe-west" \
+            --set-env-vars="VERTEX_AI_LOCATION=${{ env.REGION }}" \
             --set-env-vars="ENVIRONMENT=prod" \
             --set-env-vars="CORS_ORIGINS=*" \
             --set-env-vars="USE_LOGIN=true" \
@@ -101,8 +103,14 @@ jobs:
             --set-env-vars="ENABLE_UNAUTHENTICATED_ACCESS=true" \
             --set-env-vars="MICROSOFT_CLIENT_ID=${{ secrets.MICROSOFT_CLIENT_ID }}" \
             --set-env-vars="MICROSOFT_TENANT_ID=${{ secrets.MICROSOFT_TENANT_ID }}" \
+            --set-env-vars="FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}" \
+            --set-env-vars="FIREBASE_AUTH_DOMAIN=${{ env.PROJECT_ID }}.firebaseapp.com" \
+            --set-env-vars="FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }}" \
+            --set-env-vars="FIREBASE_STORAGE_BUCKET=${{ env.PROJECT_ID }}.appspot.com" \
             --set-env-vars="MAIN_BUCKET_NAME=${{ env.PROJECT_ID }}-rag-documents" \
-            --set-env-vars="TEMP_UPLOADS_BUCKET=${{ env.PROJECT_ID }}-rag-uploads"
+            --set-env-vars="TEMP_UPLOADS_BUCKET=${{ env.PROJECT_ID }}-rag-uploads" \
+            --set-env-vars="DEFAULT_MODEL=gemini-1.5-pro" \
+            --set-env-vars="EMBEDDING_MODEL=text-embedding-004"
 
       - name: Get Backend URL
         id: backend-url
