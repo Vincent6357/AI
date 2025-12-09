@@ -21,11 +21,23 @@ class AuthenticationService:
 
     def __init__(self):
         """Initialize Firebase Admin SDK"""
-        if not firebase_admin._apps:
-            # Initialize with default credentials in Cloud Run
-            firebase_admin.initialize_app()
+        self.firestore_client = None
+        self._initialized = False
 
-        self.firestore_client = firestore.AsyncClient()
+    def _ensure_initialized(self):
+        """Lazy initialization of Firebase"""
+        if self._initialized:
+            return
+        try:
+            if not firebase_admin._apps:
+                # Initialize with default credentials in Cloud Run
+                firebase_admin.initialize_app()
+            self.firestore_client = firestore.AsyncClient()
+            self._initialized = True
+            logger.info("Firebase initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Firebase: {e}")
+            raise
 
     async def verify_token(self, token: str) -> dict:
         """
@@ -40,6 +52,7 @@ class AuthenticationService:
         Raises:
             ValueError: If token is invalid
         """
+        self._ensure_initialized()
         try:
             decoded = auth.verify_id_token(token)
             return {
@@ -65,6 +78,7 @@ class AuthenticationService:
         Returns:
             User object
         """
+        self._ensure_initialized()
         # Check if user exists
         user_ref = self.firestore_client.collection("users").document(firebase_uid)
         user_doc = await user_ref.get()
@@ -123,6 +137,7 @@ class AuthenticationService:
         Returns:
             User object or None
         """
+        self._ensure_initialized()
         user_ref = self.firestore_client.collection("users").document(user_id)
         user_doc = await user_ref.get()
 
@@ -153,6 +168,7 @@ class AuthenticationService:
         Returns:
             Updated User object
         """
+        self._ensure_initialized()
         user_ref = self.firestore_client.collection("users").document(user_id)
         await user_ref.update({"role": role.value})
 
@@ -165,6 +181,7 @@ class AuthenticationService:
         Returns:
             List of User objects
         """
+        self._ensure_initialized()
         users = []
         async for user_doc in self.firestore_client.collection("users").stream():
             user_data = user_doc.to_dict()
@@ -194,5 +211,6 @@ class AuthenticationService:
         Returns:
             True if user is admin
         """
+        self._ensure_initialized()
         user = await self.get_user(user_id)
         return user is not None and user.role == UserRole.ADMIN
