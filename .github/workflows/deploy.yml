@@ -57,6 +57,21 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker
 
+      - name: Create Cloud Storage buckets if not exist
+        run: |
+          # Create main documents bucket
+          gsutil ls -b gs://${{ env.PROJECT_ID }}-rag-documents || \
+            gsutil mb -l ${{ env.REGION }} gs://${{ env.PROJECT_ID }}-rag-documents
+
+          # Create temp uploads bucket
+          gsutil ls -b gs://${{ env.PROJECT_ID }}-rag-uploads || \
+            gsutil mb -l ${{ env.REGION }} gs://${{ env.PROJECT_ID }}-rag-uploads
+
+          # Set CORS on buckets for frontend access
+          echo '[{"origin": ["*"], "method": ["GET", "PUT", "POST", "DELETE"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}]' > /tmp/cors.json
+          gsutil cors set /tmp/cors.json gs://${{ env.PROJECT_ID }}-rag-documents
+          gsutil cors set /tmp/cors.json gs://${{ env.PROJECT_ID }}-rag-uploads
+
       - name: Build and push Backend
         run: |
           docker build -t gcr.io/${{ env.PROJECT_ID }}/rag-backend:${{ github.sha }} ./app/backend
@@ -81,9 +96,13 @@ jobs:
             --set-env-vars="GCP_REGION=${{ env.REGION }}" \
             --set-env-vars="ENVIRONMENT=prod" \
             --set-env-vars="CORS_ORIGINS=*" \
-            --set-env-vars="USE_LOGIN=false" \
+            --set-env-vars="USE_LOGIN=true" \
             --set-env-vars="REQUIRE_ACCESS_CONTROL=false" \
-            --set-env-vars="ENABLE_UNAUTHENTICATED_ACCESS=true"
+            --set-env-vars="ENABLE_UNAUTHENTICATED_ACCESS=true" \
+            --set-env-vars="MICROSOFT_CLIENT_ID=${{ secrets.MICROSOFT_CLIENT_ID }}" \
+            --set-env-vars="MICROSOFT_TENANT_ID=${{ secrets.MICROSOFT_TENANT_ID }}" \
+            --set-env-vars="MAIN_BUCKET_NAME=${{ env.PROJECT_ID }}-rag-documents" \
+            --set-env-vars="TEMP_UPLOADS_BUCKET=${{ env.PROJECT_ID }}-rag-uploads"
 
       - name: Get Backend URL
         id: backend-url
