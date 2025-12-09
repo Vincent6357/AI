@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     MICROSOFT_TENANT_ID: str = os.getenv("MICROSOFT_TENANT_ID", "")
 
     # Auth settings
-    USE_LOGIN: bool = os.getenv("USE_LOGIN", "true").lower() == "true"
+    USE_LOGIN: bool = os.getenv("USE_LOGIN", "false").lower() == "true"
     REQUIRE_ACCESS_CONTROL: bool = os.getenv("REQUIRE_ACCESS_CONTROL", "false").lower() == "true"
     ENABLE_UNAUTHENTICATED_ACCESS: bool = os.getenv("ENABLE_UNAUTHENTICATED_ACCESS", "true").lower() == "true"
 
