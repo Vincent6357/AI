@@ -68,11 +68,12 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+logger.info(f"CORS origins: {settings.cors_origins_list}")
 
 # Initialize services (lazy - no GCP calls at startup)
 logger.info("Creating service instances (lazy initialization)...")
@@ -157,7 +158,7 @@ async def debug_config():
         "firebase_project_id": settings.FIREBASE_PROJECT_ID,
         "use_login": settings.USE_LOGIN,
         "main_bucket": settings.MAIN_BUCKET_NAME,
-        "cors_origins": settings.CORS_ORIGINS,
+        "cors_origins": settings.cors_origins_list,
     }
 
 
