@@ -279,33 +279,16 @@ async def ask_endpoint(request: Request):
         if not messages:
             return create_chat_response("No message provided")
 
-        # Get the last user message
         user_message = messages[-1].get("content", "") if messages else ""
 
-        # Use Vertex AI if available
-        if vertex_ai_service and settings.GCP_PROJECT_ID:
-            try:
-                from vertexai.generative_models import GenerativeModel
+        if not settings.GCP_PROJECT_ID:
+            return create_chat_response("Le service Vertex AI n'est pas configuré.", body.get("session_state"))
 
-                model = GenerativeModel(
-                    model_name=settings.DEFAULT_MODEL,
-                    system_instruction="Tu es un assistant intelligent. Réponds de manière précise et utile en français."
-                )
-
-                response = model.generate_content(
-                    user_message,
-                    generation_config={
-                        "temperature": settings.DEFAULT_TEMPERATURE,
-                        "max_output_tokens": settings.DEFAULT_MAX_TOKENS,
-                    }
-                )
-
-                response_content = response.text
-            except Exception as e:
-                logger.error(f"Vertex AI error: {e}")
-                response_content = f"Erreur lors de la génération de la réponse: {str(e)}"
-        else:
-            response_content = "Le service Vertex AI n'est pas configuré. Veuillez vérifier la configuration GCP."
+        try:
+            response_content = vertex_ai_service.generate_response(user_message)
+        except Exception as e:
+            logger.error(f"Vertex AI error: {e}")
+            response_content = f"Erreur lors de la génération de la réponse: {str(e)}"
 
         return create_chat_response(response_content, body.get("session_state"))
 
@@ -329,45 +312,16 @@ async def chat_endpoint(request: Request):
 
         user_message = messages[-1].get("content", "") if messages else ""
 
-        # Use Vertex AI if available
-        if vertex_ai_service and settings.GCP_PROJECT_ID:
-            try:
-                from vertexai.generative_models import GenerativeModel, Content, Part
+        if not settings.GCP_PROJECT_ID:
+            return create_chat_response("Le service Vertex AI n'est pas configuré.", body.get("session_state"))
 
-                model = GenerativeModel(
-                    model_name=settings.DEFAULT_MODEL,
-                    system_instruction="Tu es un assistant intelligent. Réponds de manière précise et utile en français."
-                )
-
-                # Build conversation history
-                contents = []
-                for msg in messages[:-1]:  # All messages except the last
-                    role = "user" if msg.get("role") == "user" else "model"
-                    contents.append(Content(
-                        role=role,
-                        parts=[Part.from_text(msg.get("content", ""))]
-                    ))
-
-                # Add current message
-                contents.append(Content(
-                    role="user",
-                    parts=[Part.from_text(user_message)]
-                ))
-
-                response = model.generate_content(
-                    contents,
-                    generation_config={
-                        "temperature": settings.DEFAULT_TEMPERATURE,
-                        "max_output_tokens": settings.DEFAULT_MAX_TOKENS,
-                    }
-                )
-
-                response_content = response.text
-            except Exception as e:
-                logger.error(f"Vertex AI error: {e}")
-                response_content = f"Erreur lors de la génération de la réponse: {str(e)}"
-        else:
-            response_content = "Le service Vertex AI n'est pas configuré. Veuillez vérifier la configuration GCP."
+        try:
+            # Build history from previous messages
+            history = [{"role": m.get("role"), "content": m.get("content", "")} for m in messages[:-1]]
+            response_content = vertex_ai_service.generate_response(user_message, history)
+        except Exception as e:
+            logger.error(f"Vertex AI error: {e}")
+            response_content = f"Erreur lors de la génération de la réponse: {str(e)}"
 
         return create_chat_response(response_content, body.get("session_state"))
 
@@ -393,51 +347,23 @@ async def chat_stream_endpoint(request: Request):
             full_response = ""
 
             # Use Vertex AI if available
-            if vertex_ai_service and settings.GCP_PROJECT_ID:
+            if settings.GCP_PROJECT_ID:
                 try:
-                    from vertexai.generative_models import GenerativeModel, Content, Part
-
-                    model = GenerativeModel(
-                        model_name=settings.DEFAULT_MODEL,
-                        system_instruction="Tu es un assistant intelligent. Réponds de manière précise et utile en français."
-                    )
-
                     # Build conversation history
-                    contents = []
-                    for msg in messages[:-1]:
-                        role = "user" if msg.get("role") == "user" else "model"
-                        contents.append(Content(
-                            role=role,
-                            parts=[Part.from_text(msg.get("content", ""))]
-                        ))
+                    history = [{"role": m.get("role"), "content": m.get("content", "")} for m in messages[:-1]]
 
-                    contents.append(Content(
-                        role="user",
-                        parts=[Part.from_text(user_message)]
-                    ))
-
-                    # Stream response from Vertex AI
-                    response = model.generate_content(
-                        contents,
-                        generation_config={
-                            "temperature": settings.DEFAULT_TEMPERATURE,
-                            "max_output_tokens": settings.DEFAULT_MAX_TOKENS,
-                        },
-                        stream=True
-                    )
-
-                    for chunk in response:
-                        if chunk.text:
-                            full_response += chunk.text
-                            yield json.dumps({
-                                "delta": {"content": chunk.text, "role": "assistant"},
-                                "context": {
-                                    "data_points": {"text": [], "images": [], "citations": []},
-                                    "followup_questions": None,
-                                    "thoughts": []
-                                },
-                                "session_state": session_state
-                            }) + "\n"
+                    # Stream response using the service (with lazy initialization)
+                    for chunk_text in vertex_ai_service.generate_response_stream(user_message, history):
+                        full_response += chunk_text
+                        yield json.dumps({
+                            "delta": {"content": chunk_text, "role": "assistant"},
+                            "context": {
+                                "data_points": {"text": [], "images": [], "citations": []},
+                                "followup_questions": None,
+                                "thoughts": []
+                            },
+                            "session_state": session_state
+                        }) + "\n"
 
                 except Exception as e:
                     logger.error(f"Vertex AI streaming error: {e}")
