@@ -4,10 +4,10 @@ uvicorn[standard]==0.27.1
 gunicorn==21.2.0
 python-multipart==0.0.9
 
-# Google Cloud
+# Google Cloud - updated for system_instruction support
 google-cloud-storage==2.14.0
 google-cloud-firestore==2.14.0
-google-cloud-aiplatform==1.42.1
+google-cloud-aiplatform>=1.60.0
 google-cloud-documentai==2.24.0
 google-cloud-discoveryengine==0.11.8
 
