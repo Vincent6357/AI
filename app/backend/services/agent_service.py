@@ -16,12 +16,27 @@ class AgentService:
     """Service for agent management"""
 
     def __init__(self):
-        self.firestore_client = firestore.AsyncClient()
-        self.storage_service = StorageService()
-        self.vertex_service = VertexAIService()
+        self.firestore_client = None
+        self.storage_service = None
+        self.vertex_service = None
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """Lazy initialization of services"""
+        if self._initialized:
+            return
+        try:
+            self.firestore_client = firestore.AsyncClient()
+            self.storage_service = StorageService()
+            self.vertex_service = VertexAIService()
+            self._initialized = True
+        except Exception as e:
+            logger.error(f"Failed to initialize AgentService: {e}")
+            raise
 
     async def create_agent(self, agent_create: AgentCreate, created_by: str) -> Agent:
         """Create a new agent"""
+        self._ensure_initialized()
         agent_id = str(uuid.uuid4())[:8]
         bucket_name = f"{settings.GCP_PROJECT_ID}-agent-{agent_id}"
 
@@ -53,6 +68,7 @@ class AgentService:
 
     async def get_agent(self, agent_id: str) -> Agent:
         """Get agent by ID"""
+        self._ensure_initialized()
         doc = await self.firestore_client.collection("agents").document(agent_id).get()
         if not doc.exists:
             raise ValueError(f"Agent {agent_id} not found")
@@ -60,6 +76,7 @@ class AgentService:
 
     async def list_agents(self) -> list[Agent]:
         """List all agents"""
+        self._ensure_initialized()
         agents = []
         async for doc in self.firestore_client.collection("agents").stream():
             agents.append(Agent(**doc.to_dict()))
@@ -67,6 +84,7 @@ class AgentService:
 
     async def update_agent(self, agent_id: str, agent_update: AgentUpdate) -> Agent:
         """Update agent"""
+        self._ensure_initialized()
         update_data = agent_update.dict(exclude_none=True)
         update_data["updatedAt"] = firestore.SERVER_TIMESTAMP
 
@@ -75,6 +93,7 @@ class AgentService:
 
     async def delete_agent(self, agent_id: str):
         """Delete agent and all resources"""
+        self._ensure_initialized()
         agent = await self.get_agent(agent_id)
 
         # Delete bucket

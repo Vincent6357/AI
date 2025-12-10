@@ -58,17 +58,6 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
 
-      - name: Create Artifact Registry repository if not exists
-        run: |
-          gcloud artifacts repositories describe rag-app \
-            --location=${{ env.REGION }} \
-            --project=${{ env.PROJECT_ID }} 2>/dev/null || \
-          gcloud artifacts repositories create rag-app \
-            --repository-format=docker \
-            --location=${{ env.REGION }} \
-            --project=${{ env.PROJECT_ID }} \
-            --description="RAG Application Docker images"
-
       - name: Create Cloud Storage buckets if not exist
         run: |
           # Create main documents bucket
