@@ -22,13 +22,30 @@ class DocumentService:
     ALLOWED_EXTENSIONS = settings.ALLOWED_EXTENSIONS
 
     def __init__(self):
-        self.firestore_client = firestore.AsyncClient()
-        self.storage_service = StorageService()
-        self.vertex_service = VertexAIService()
-        self.agent_service = AgentService()
+        self.firestore_client = None
+        self.storage_service = None
+        self.vertex_service = None
+        self.agent_service = None
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """Lazy initialization of services"""
+        if self._initialized:
+            return
+        try:
+            self.firestore_client = firestore.AsyncClient()
+            self.storage_service = StorageService()
+            self.vertex_service = VertexAIService()
+            self.agent_service = AgentService()
+            self._initialized = True
+            logger.info("DocumentService initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize DocumentService: {e}")
+            raise
 
     async def upload_document(self, agent_id: str, file: UploadFile, uploaded_by: str) -> Document:
         """Upload document"""
+        self._ensure_initialized()
         # Validate file
         ext = Path(file.filename).suffix.lower()
         if ext not in self.ALLOWED_EXTENSIONS:
@@ -108,6 +125,7 @@ class DocumentService:
 
     async def get_document(self, agent_id: str, doc_id: str) -> Document:
         """Get document by ID"""
+        self._ensure_initialized()
         doc = await self.firestore_client.collection("agents").document(agent_id)\
             .collection("documents").document(doc_id).get()
         if not doc.exists:
@@ -116,6 +134,7 @@ class DocumentService:
 
     async def list_documents(self, agent_id: str) -> list[Document]:
         """List documents for agent"""
+        self._ensure_initialized()
         documents = []
         async for doc in self.firestore_client.collection("agents").document(agent_id)\
                 .collection("documents").stream():
@@ -124,6 +143,7 @@ class DocumentService:
 
     async def delete_document(self, agent_id: str, doc_id: str):
         """Delete document"""
+        self._ensure_initialized()
         agent = await self.agent_service.get_agent(agent_id)
         doc = await self.get_document(agent_id, doc_id)
 
@@ -137,6 +157,7 @@ class DocumentService:
 
     async def get_download_url(self, agent_id: str, doc_id: str) -> str:
         """Generate download URL"""
+        self._ensure_initialized()
         agent = await self.agent_service.get_agent(agent_id)
         doc = await self.get_document(agent_id, doc_id)
 

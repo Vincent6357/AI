@@ -27,11 +27,23 @@ class VertexAIService:
     """Service for Vertex AI operations"""
 
     def __init__(self):
-        """Initialize Vertex AI"""
-        vertexai.init(
-            project=settings.GCP_PROJECT_ID,
-            location=settings.VERTEX_AI_LOCATION
-        )
+        """Initialize Vertex AI - lazy initialization"""
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """Lazy initialization of Vertex AI"""
+        if self._initialized:
+            return
+        try:
+            vertexai.init(
+                project=settings.GCP_PROJECT_ID,
+                location=settings.VERTEX_AI_LOCATION
+            )
+            self._initialized = True
+            logger.info("Vertex AI initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Vertex AI: {e}")
+            raise
 
     async def chat_stream(
         self,
@@ -52,6 +64,7 @@ class VertexAIService:
         Yields:
             Response chunks
         """
+        self._ensure_initialized()
         try:
             # Build system prompt with context
             system_prompt = self._build_system_prompt(agent, retrieved_contexts)
@@ -135,6 +148,7 @@ INSTRUCTIONS:
         Returns:
             Corpus ID
         """
+        self._ensure_initialized()
         if not RAG_AVAILABLE:
             logger.warning("RAG API not available, skipping corpus creation")
             return f"mock-corpus-{agent_id}"
@@ -165,6 +179,7 @@ INSTRUCTIONS:
             chunk_size: Chunk size for splitting
             chunk_overlap: Overlap between chunks
         """
+        self._ensure_initialized()
         if not RAG_AVAILABLE:
             logger.warning("RAG API not available, skipping file import")
             return
@@ -199,6 +214,7 @@ INSTRUCTIONS:
         Returns:
             List of context dicts
         """
+        self._ensure_initialized()
         if not RAG_AVAILABLE:
             logger.warning("RAG API not available, returning empty contexts")
             return []
