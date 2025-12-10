@@ -14,9 +14,24 @@ class ChatService:
     """Service for chat operations"""
 
     def __init__(self):
-        self.firestore_client = firestore.AsyncClient()
-        self.vertex_service = VertexAIService()
-        self.agent_service = AgentService()
+        self.firestore_client = None
+        self.vertex_service = None
+        self.agent_service = None
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """Lazy initialization of services"""
+        if self._initialized:
+            return
+        try:
+            self.firestore_client = firestore.AsyncClient()
+            self.vertex_service = VertexAIService()
+            self.agent_service = AgentService()
+            self._initialized = True
+            logger.info("ChatService initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize ChatService: {e}")
+            raise
 
     async def chat_stream(
         self,
@@ -26,6 +41,7 @@ class ChatService:
         conversation_id: str = None
     ) -> AsyncGenerator[dict, None]:
         """Stream chat response with RAG"""
+        self._ensure_initialized()
         try:
             agent = await self.agent_service.get_agent(agent_id)
 
@@ -149,6 +165,7 @@ class ChatService:
 
     async def clear_history(self, agent_id: str, user_id: str):
         """Clear conversation history"""
+        self._ensure_initialized()
         conv_ref = self.firestore_client.collection("agents").document(agent_id)\
             .collection("conversations").document(user_id)
         await conv_ref.delete()
