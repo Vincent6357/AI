@@ -335,16 +335,19 @@ async def chat_endpoint(request: Request):
 
 @app.post("/chat/stream")
 async def chat_stream_endpoint(request: Request):
-    """Chat streaming endpoint - Server-Sent Events"""
+    """Chat streaming endpoint with RAG support"""
     try:
         body = await request.json()
         messages = body.get("messages", [])
         session_state = body.get("session_state") or str(uuid.uuid4())
+        agent_id = body.get("context", {}).get("overrides", {}).get("agent_id")
 
         user_message = messages[-1].get("content", "") if messages else ""
 
         async def generate_stream():
             full_response = ""
+            retrieved_contexts = []
+            citations = []
 
             # Use Vertex AI if available
             if settings.GCP_PROJECT_ID:
@@ -352,18 +355,87 @@ async def chat_stream_endpoint(request: Request):
                     # Build conversation history
                     history = [{"role": m.get("role"), "content": m.get("content", "")} for m in messages[:-1]]
 
-                    # Stream response using the service (with lazy initialization)
-                    for chunk_text in vertex_ai_service.generate_response_stream(user_message, history):
-                        full_response += chunk_text
-                        yield json.dumps({
-                            "delta": {"content": chunk_text, "role": "assistant"},
-                            "context": {
-                                "data_points": {"text": [], "images": [], "citations": []},
-                                "followup_questions": None,
-                                "thoughts": []
-                            },
-                            "session_state": session_state
-                        }) + "\n"
+                    # If agent_id provided, use RAG with context retrieval
+                    if agent_id:
+                        try:
+                            agent = await agent_service.get_agent(agent_id)
+                            if agent.corpus_id and agent.corpus_id != f"mock-corpus-{agent_id}":
+                                # Retrieve relevant contexts from RAG
+                                retrieved_contexts = await vertex_ai_service.retrieve_contexts(
+                                    agent.corpus_id,
+                                    user_message,
+                                    agent.settings.retrieval_top_k,
+                                    agent.settings.similarity_threshold
+                                )
+                                logger.info(f"Retrieved {len(retrieved_contexts)} contexts for agent {agent_id}")
+
+                                # Build system prompt with retrieved context
+                                system_prompt = _build_rag_system_prompt(agent, retrieved_contexts)
+
+                                # Generate response with RAG context
+                                for chunk_text in vertex_ai_service.generate_response_stream(
+                                    user_message, history, system_prompt
+                                ):
+                                    full_response += chunk_text
+                                    yield json.dumps({
+                                        "delta": {"content": chunk_text, "role": "assistant"},
+                                        "context": {
+                                            "data_points": {
+                                                "text": [ctx.get("content", "")[:500] for ctx in retrieved_contexts],
+                                                "images": [],
+                                                "citations": []
+                                            },
+                                            "followup_questions": None,
+                                            "thoughts": [f"Contexte récupéré de {len(retrieved_contexts)} documents"]
+                                        },
+                                        "session_state": session_state
+                                    }) + "\n"
+
+                                # Extract citations from response
+                                citations = _extract_citations(full_response, retrieved_contexts)
+
+                            else:
+                                # Agent exists but no RAG corpus yet
+                                logger.warning(f"Agent {agent_id} has no RAG corpus configured")
+                                for chunk_text in vertex_ai_service.generate_response_stream(user_message, history):
+                                    full_response += chunk_text
+                                    yield json.dumps({
+                                        "delta": {"content": chunk_text, "role": "assistant"},
+                                        "context": {
+                                            "data_points": {"text": [], "images": [], "citations": []},
+                                            "followup_questions": None,
+                                            "thoughts": ["Aucun document indexé dans cet agent"]
+                                        },
+                                        "session_state": session_state
+                                    }) + "\n"
+
+                        except ValueError as e:
+                            logger.warning(f"Agent {agent_id} not found: {e}")
+                            # Fall back to basic response
+                            for chunk_text in vertex_ai_service.generate_response_stream(user_message, history):
+                                full_response += chunk_text
+                                yield json.dumps({
+                                    "delta": {"content": chunk_text, "role": "assistant"},
+                                    "context": {
+                                        "data_points": {"text": [], "images": [], "citations": []},
+                                        "followup_questions": None,
+                                        "thoughts": []
+                                    },
+                                    "session_state": session_state
+                                }) + "\n"
+                    else:
+                        # No agent specified - use basic response
+                        for chunk_text in vertex_ai_service.generate_response_stream(user_message, history):
+                            full_response += chunk_text
+                            yield json.dumps({
+                                "delta": {"content": chunk_text, "role": "assistant"},
+                                "context": {
+                                    "data_points": {"text": [], "images": [], "citations": []},
+                                    "followup_questions": None,
+                                    "thoughts": []
+                                },
+                                "session_state": session_state
+                            }) + "\n"
 
                 except Exception as e:
                     logger.error(f"Vertex AI streaming error: {e}")
@@ -389,20 +461,20 @@ async def chat_stream_endpoint(request: Request):
                     "session_state": session_state
                 }) + "\n"
 
-            # Send final message
+            # Send final message with citations
             yield json.dumps({
                 "message": {"content": full_response, "role": "assistant"},
                 "delta": {"content": "", "role": "assistant"},
                 "context": {
                     "data_points": {
-                        "text": [],
+                        "text": [ctx.get("content", "")[:500] for ctx in retrieved_contexts],
                         "images": [],
-                        "citations": [],
+                        "citations": citations,
                         "citation_activity_details": {},
                         "external_results_metadata": []
                     },
                     "followup_questions": None,
-                    "thoughts": []
+                    "thoughts": [f"Sources: {len(retrieved_contexts)} documents"] if retrieved_contexts else []
                 },
                 "session_state": session_state
             }) + "\n"
@@ -423,6 +495,51 @@ async def chat_stream_endpoint(request: Request):
             status_code=500,
             content={"error": str(e)}
         )
+
+
+def _build_rag_system_prompt(agent, contexts: list) -> str:
+    """Build system prompt with RAG context"""
+    base_prompt = agent.settings.system_prompt or """Tu es un assistant intelligent qui répond aux questions en te basant sur les documents fournis.
+Réponds de manière précise et cite tes sources quand c'est pertinent en utilisant le format [Source: nom_du_fichier].
+Si l'information n'est pas dans les documents, dis-le clairement."""
+
+    if contexts:
+        context_text = "\n\n".join([
+            f"[Source: {ctx.get('source', 'Unknown')}]\n{ctx.get('content', '')}"
+            for ctx in contexts
+        ])
+        return f"""{base_prompt}
+
+DOCUMENTS DE RÉFÉRENCE:
+{context_text}
+
+INSTRUCTIONS:
+- Base tes réponses uniquement sur les documents ci-dessus
+- Cite les sources pertinentes avec [Source: nom_du_fichier]
+- Si tu ne trouves pas l'information, indique-le clairement
+- Réponds dans la même langue que la question"""
+
+    return base_prompt
+
+
+def _extract_citations(response: str, contexts: list) -> list:
+    """Extract citations from response"""
+    import re
+    citations = []
+    pattern = r'\[Source:\s*([^\]]+)\]'
+    matches = re.findall(pattern, response)
+
+    for match in matches:
+        for ctx in contexts:
+            if match.lower() in ctx.get("source", "").lower():
+                citations.append({
+                    "source": ctx.get("source"),
+                    "content": ctx.get("content", "")[:200],
+                    "score": ctx.get("score", 0)
+                })
+                break
+
+    return citations
 
 
 @app.post("/speech")
@@ -575,6 +692,116 @@ async def get_content(path: str, authorization: Optional[str] = Header(None)):
         status_code=404,
         content={"message": f"Content '{path}' not found"}
     )
+
+
+# Public agents endpoint for frontend dropdown
+@app.get("/agents")
+async def list_agents_public():
+    """List agents (public endpoint for frontend selection)"""
+    try:
+        agents = await agent_service.list_agents()
+        return [
+            {
+                "id": a.id,
+                "name": a.name,
+                "description": a.description,
+                "status": a.status.value if hasattr(a.status, 'value') else a.status,
+                "document_count": a.document_count
+            }
+            for a in agents
+        ]
+    except Exception as e:
+        logger.error(f"Error listing agents: {e}")
+        return []
+
+
+# Public endpoint to create agent (for initial setup - protect in production)
+@app.post("/agents")
+async def create_agent_public(request: Request):
+    """Create agent (simplified endpoint for setup)"""
+    try:
+        body = await request.json()
+        name = body.get("name", "")
+        description = body.get("description", "")
+
+        if not name:
+            return JSONResponse(status_code=400, content={"error": "Name is required"})
+
+        agent_create = AgentCreate(name=name, description=description)
+        agent = await agent_service.create_agent(agent_create, "system")
+
+        return {
+            "id": agent.id,
+            "name": agent.name,
+            "description": agent.description,
+            "corpus_id": agent.corpus_id,
+            "bucket_name": agent.bucket_name
+        }
+    except Exception as e:
+        logger.error(f"Error creating agent: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# Public endpoint to delete agent
+@app.delete("/agents/{agent_id}")
+async def delete_agent_public(agent_id: str):
+    """Delete agent (simplified endpoint)"""
+    try:
+        await agent_service.delete_agent(agent_id)
+        return {"message": f"Agent {agent_id} deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting agent: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# Public endpoint to upload document to agent
+@app.post("/agents/{agent_id}/documents")
+async def upload_document_to_agent(agent_id: str, file: UploadFile = File(...)):
+    """Upload document to agent and index in RAG"""
+    try:
+        doc = await document_service.upload_document(agent_id, file, "system")
+        return {
+            "id": doc.id,
+            "filename": doc.original_name,
+            "status": doc.status.value if hasattr(doc.status, 'value') else doc.status,
+            "gcs_path": doc.gcs_path
+        }
+    except Exception as e:
+        logger.error(f"Error uploading document: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# Public endpoint to list documents for agent
+@app.get("/agents/{agent_id}/documents")
+async def list_agent_documents_public(agent_id: str):
+    """List documents for agent"""
+    try:
+        docs = await document_service.list_documents(agent_id)
+        return [
+            {
+                "id": d.id,
+                "filename": d.original_name,
+                "status": d.status.value if hasattr(d.status, 'value') else d.status,
+                "size": d.size,
+                "uploaded_at": str(d.uploaded_at) if d.uploaded_at else None
+            }
+            for d in docs
+        ]
+    except Exception as e:
+        logger.error(f"Error listing documents: {e}")
+        return []
+
+
+# Public endpoint to delete document
+@app.delete("/agents/{agent_id}/documents/{doc_id}")
+async def delete_document_public(agent_id: str, doc_id: str):
+    """Delete document from agent"""
+    try:
+        await document_service.delete_document(agent_id, doc_id)
+        return {"message": "Document deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting document: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 # User routes

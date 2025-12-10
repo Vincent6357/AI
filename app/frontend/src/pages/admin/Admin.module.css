@@ -1,0 +1,44 @@
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.title {
+    font-size: 24px;
+    margin-bottom: 20px;
+    color: #323130;
+}
+
+.section {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.section h2 {
+    font-size: 18px;
+    margin-bottom: 15px;
+    color: #323130;
+}
+
+.uploadSection {
+    margin-bottom: 15px;
+}
+
+.statusIndexed {
+    color: #107c10;
+    font-weight: 500;
+}
+
+.statusError {
+    color: #d13438;
+    font-weight: 500;
+}
+
+.statusPending {
+    color: #797775;
+    font-weight: 500;
+}

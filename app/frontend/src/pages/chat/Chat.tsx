@@ -1,13 +1,13 @@
 import { useRef, useState, useEffect, useContext } from "react";
 import { useTranslation } from "react-i18next";
 import { Helmet } from "react-helmet-async";
-import { Panel, DefaultButton } from "@fluentui/react";
+import { Panel, DefaultButton, Dropdown, IDropdownOption } from "@fluentui/react";
 import readNDJSONStream from "ndjson-readablestream";
 
 import appLogo from "../../assets/applogo.svg";
 import styles from "./Chat.module.css";
 
-import { chatApi, configApi, RetrievalMode, ChatAppResponse, ChatAppResponseOrError, ChatAppRequest, ResponseMessage, SpeechConfig } from "../../api";
+import { chatApi, configApi, listAgentsApi, Agent, RetrievalMode, ChatAppResponse, ChatAppResponseOrError, ChatAppRequest, ResponseMessage, SpeechConfig } from "../../api";
 import { Answer, AnswerError, AnswerLoading } from "../../components/Answer";
 import { QuestionInput } from "../../components/QuestionInput";
 import { ExampleList } from "../../components/Example";
@@ -30,6 +30,10 @@ const Chat = () => {
     const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
     const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
     const [promptTemplate, setPromptTemplate] = useState<string>("");
+
+    // Agent/RAG selection
+    const [agents, setAgents] = useState<Agent[]>([]);
+    const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(undefined);
     const [temperature, setTemperature] = useState<number>(0.3);
     const [seed, setSeed] = useState<number | null>(null);
     const [minimumRerankerScore, setMinimumRerankerScore] = useState<number>(1.9);
@@ -98,6 +102,19 @@ const Chat = () => {
         audio,
         isPlaying,
         setIsPlaying
+    };
+
+    const loadAgents = async () => {
+        try {
+            const agentsList = await listAgentsApi();
+            setAgents(agentsList);
+            // Auto-select first agent if available
+            if (agentsList.length > 0 && !selectedAgentId) {
+                setSelectedAgentId(agentsList[0].id);
+            }
+        } catch (e) {
+            console.error("Failed to load agents:", e);
+        }
     };
 
     const getConfig = async () => {
@@ -248,6 +265,7 @@ const Chat = () => {
                 messages: [...messages, { content: question, role: "user" }],
                 context: {
                     overrides: {
+                        agent_id: selectedAgentId,
                         prompt_template: promptTemplate.length === 0 ? undefined : promptTemplate,
                         include_category: includeCategory.length === 0 ? undefined : includeCategory,
                         exclude_category: excludeCategory.length === 0 ? undefined : excludeCategory,
@@ -326,6 +344,7 @@ const Chat = () => {
     useEffect(() => chatMessageStreamEnd.current?.scrollIntoView({ behavior: "auto" }), [streamedAnswers]);
     useEffect(() => {
         getConfig();
+        loadAgents();
     }, []);
 
     // Preserve streaming preference when agentic retrieval forces streaming off.
@@ -485,6 +504,18 @@ const Chat = () => {
                 <div className={styles.commandsContainer}>
                     {((useLogin && showChatHistoryCosmos) || showChatHistoryBrowser) && (
                         <HistoryButton className={styles.commandButton} onClick={() => setIsHistoryPanelOpen(!isHistoryPanelOpen)} />
+                    )}
+                    {agents.length > 0 && (
+                        <Dropdown
+                            placeholder="Selectionner un RAG"
+                            selectedKey={selectedAgentId}
+                            options={[
+                                { key: "", text: "Aucun RAG (chat general)" },
+                                ...agents.map(a => ({ key: a.id, text: `${a.name} (${a.document_count} docs)` }))
+                            ]}
+                            onChange={(_, option) => setSelectedAgentId(option?.key as string || undefined)}
+                            styles={{ root: { minWidth: 200, marginRight: 10 } }}
+                        />
                     )}
                 </div>
                 <div className={styles.commandsContainer}>

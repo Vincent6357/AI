@@ -52,6 +52,15 @@ const Layout = () => {
                                     {t("chat")}
                                 </NavLink>
                             </li>
+                            <li>
+                                <NavLink
+                                    to="/admin"
+                                    className={({ isActive }) => (isActive ? styles.headerNavPageLinkActive : styles.headerNavPageLink)}
+                                    onClick={() => setMenuOpen(false)}
+                                >
+                                    Admin RAG
+                                </NavLink>
+                            </li>
                         </ul>
                     </nav>
                     <div className={styles.loginMenuContainer}>
