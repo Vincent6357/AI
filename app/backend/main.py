@@ -49,6 +49,7 @@ try:
     from services.document_service import DocumentService
     from services.chat_service import ChatService
     from services.vertex_ai_service import VertexAIService
+    from services.storage_service import StorageService
     logger.info("Services modules loaded (lazy init)")
 except Exception as e:
     logger.error(f"Failed to load services: {e}")
@@ -82,6 +83,7 @@ agent_service = AgentService()
 document_service = DocumentService()
 chat_service = ChatService()
 vertex_ai_service = VertexAIService()
+storage_service = StorageService()
 logger.info("All service instances created successfully")
 logger.info("=" * 50)
 logger.info("Backend ready to accept requests!")
@@ -508,24 +510,106 @@ async def speech_endpoint():
 
 @app.post("/upload")
 async def upload_endpoint(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
-    """Upload file endpoint"""
-    # TODO: Implement file upload to Cloud Storage
-    return {"message": f"File '{file.filename}' upload endpoint. Implementation pending."}
+    """Upload file to Cloud Storage"""
+    try:
+        # Check if bucket is configured
+        bucket_name = settings.TEMP_UPLOADS_BUCKET
+        if not bucket_name:
+            logger.error("TEMP_UPLOADS_BUCKET not configured")
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Upload bucket not configured"}
+            )
+
+        # Read file content
+        content = await file.read()
+
+        # Generate safe filename with prefix
+        import hashlib
+        file_hash = hashlib.md5(content).hexdigest()[:8]
+        safe_filename = f"uploads/{file_hash}_{file.filename}"
+
+        # Upload to Cloud Storage
+        gcs_path = storage_service.upload_file(
+            bucket_name,
+            content,
+            safe_filename,
+            file.content_type
+        )
+
+        logger.info(f"File uploaded successfully: {gcs_path}")
+
+        return {
+            "message": f"File '{file.filename}' uploaded successfully",
+            "filename": file.filename,
+            "path": gcs_path,
+            "size": len(content)
+        }
+
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
 
 
 @app.post("/delete_uploaded")
 async def delete_uploaded_endpoint(request: Request, authorization: Optional[str] = Header(None)):
-    """Delete uploaded file endpoint"""
-    body = await request.json()
-    filename = body.get("filename", "")
-    return {"message": f"Delete endpoint for '{filename}'. Implementation pending."}
+    """Delete uploaded file from Cloud Storage"""
+    try:
+        body = await request.json()
+        filename = body.get("filename", "")
+
+        if not filename:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Filename is required"}
+            )
+
+        bucket_name = settings.TEMP_UPLOADS_BUCKET
+        if not bucket_name:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Upload bucket not configured"}
+            )
+
+        # Delete from Cloud Storage
+        blob_name = f"uploads/{filename}" if not filename.startswith("uploads/") else filename
+        storage_service.delete_file(bucket_name, blob_name)
+
+        logger.info(f"File deleted: {blob_name}")
+
+        return {"message": f"File '{filename}' deleted successfully"}
+
+    except Exception as e:
+        logger.error(f"Delete error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
 
 
 @app.get("/list_uploaded")
 async def list_uploaded_endpoint(authorization: Optional[str] = Header(None)):
-    """List uploaded files endpoint"""
-    # TODO: List files from Cloud Storage
-    return []
+    """List uploaded files from Cloud Storage"""
+    try:
+        bucket_name = settings.TEMP_UPLOADS_BUCKET
+        if not bucket_name:
+            logger.warning("TEMP_UPLOADS_BUCKET not configured")
+            return []
+
+        # List files with 'uploads/' prefix
+        files = storage_service.list_files(bucket_name, prefix="uploads/")
+
+        # Return just the filenames without the prefix
+        filenames = [f.replace("uploads/", "") for f in files if f != "uploads/"]
+
+        return filenames
+
+    except Exception as e:
+        logger.error(f"List files error: {e}")
+        return []
 
 
 @app.post("/chat_history")
