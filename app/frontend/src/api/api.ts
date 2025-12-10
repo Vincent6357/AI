@@ -191,3 +191,94 @@ export async function deleteChatHistoryApi(id: string, idToken: string): Promise
         throw new Error(`Deleting chat history failed: ${response.statusText}`);
     }
 }
+
+// Agent API functions
+export interface Agent {
+    id: string;
+    name: string;
+    description: string;
+    status: string;
+    document_count: number;
+}
+
+export interface AgentDocument {
+    id: string;
+    filename: string;
+    status: string;
+    size: number;
+    uploaded_at: string | null;
+}
+
+export async function listAgentsApi(): Promise<Agent[]> {
+    const response = await fetch(`${BACKEND_URI}/agents`, {
+        method: "GET"
+    });
+
+    if (!response.ok) {
+        throw new Error(`Listing agents failed: ${response.statusText}`);
+    }
+
+    return await response.json();
+}
+
+export async function createAgentApi(name: string, description: string): Promise<Agent> {
+    const response = await fetch(`${BACKEND_URI}/agents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, description })
+    });
+
+    if (!response.ok) {
+        throw new Error(`Creating agent failed: ${response.statusText}`);
+    }
+
+    return await response.json();
+}
+
+export async function deleteAgentApi(agentId: string): Promise<void> {
+    const response = await fetch(`${BACKEND_URI}/agents/${agentId}`, {
+        method: "DELETE"
+    });
+
+    if (!response.ok) {
+        throw new Error(`Deleting agent failed: ${response.statusText}`);
+    }
+}
+
+export async function listAgentDocumentsApi(agentId: string): Promise<AgentDocument[]> {
+    const response = await fetch(`${BACKEND_URI}/agents/${agentId}/documents`, {
+        method: "GET"
+    });
+
+    if (!response.ok) {
+        throw new Error(`Listing documents failed: ${response.statusText}`);
+    }
+
+    return await response.json();
+}
+
+export async function uploadAgentDocumentApi(agentId: string, file: File): Promise<AgentDocument> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(`${BACKEND_URI}/agents/${agentId}/documents`, {
+        method: "POST",
+        body: formData
+    });
+
+    if (!response.ok) {
+        throw new Error(`Uploading document failed: ${response.statusText}`);
+    }
+
+    return await response.json();
+}
+
+export async function deleteAgentDocumentApi(agentId: string, docId: string): Promise<void> {
+    const response = await fetch(`${BACKEND_URI}/agents/${agentId}/documents/${docId}`, {
+        method: "DELETE"
+    });
+
+    if (!response.ok) {
+        throw new Error(`Deleting document failed: ${response.statusText}`);
+    }
+}
