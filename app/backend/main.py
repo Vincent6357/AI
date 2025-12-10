@@ -198,10 +198,12 @@ async def auth_setup():
             }
         },
         "loginRequest": {
-            "scopes": [".default"]
+            # Standard OpenID Connect scopes - no API scope needed since backend uses Firebase
+            "scopes": ["openid", "profile", "email"]
         },
         "tokenRequest": {
-            "scopes": [f"api://{settings.MICROSOFT_CLIENT_ID}/.default"] if settings.MICROSOFT_CLIENT_ID else []
+            # Same scopes for token refresh - no custom API scope
+            "scopes": ["openid", "profile", "email"]
         }
     }
 
