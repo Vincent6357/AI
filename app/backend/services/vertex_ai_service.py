@@ -71,6 +71,103 @@ class VertexAIService:
             logger.error(f"Failed to initialize Vertex AI: {e}")
             raise
 
+    def generate_response(
+        self,
+        message: str,
+        history: list[dict] = None,
+        system_prompt: str = "Tu es un assistant intelligent. Réponds de manière précise et utile en français."
+    ) -> str:
+        """
+        Generate a simple response without streaming
+
+        Args:
+            message: User message
+            history: Conversation history
+            system_prompt: System prompt
+
+        Returns:
+            Response text
+        """
+        self._ensure_initialized()
+
+        model = self._GenerativeModel(
+            model_name=settings.DEFAULT_MODEL,
+            system_instruction=system_prompt
+        )
+
+        contents = []
+        if history:
+            for msg in history[-10:]:
+                contents.append(self._Content(
+                    role="user" if msg.get("role") == "user" else "model",
+                    parts=[self._Part.from_text(msg.get("content", ""))]
+                ))
+
+        contents.append(self._Content(
+            role="user",
+            parts=[self._Part.from_text(message)]
+        ))
+
+        response = model.generate_content(
+            contents,
+            generation_config={
+                "temperature": settings.DEFAULT_TEMPERATURE,
+                "max_output_tokens": settings.DEFAULT_MAX_TOKENS,
+            }
+        )
+
+        return response.text
+
+    def generate_response_stream(
+        self,
+        message: str,
+        history: list[dict] = None,
+        system_prompt: str = "Tu es un assistant intelligent. Réponds de manière précise et utile en français."
+    ):
+        """
+        Generate a streaming response
+
+        Args:
+            message: User message
+            history: Conversation history
+            system_prompt: System prompt
+
+        Yields:
+            Response chunks
+        """
+        self._ensure_initialized()
+
+        model = self._GenerativeModel(
+            model_name=settings.DEFAULT_MODEL,
+            system_instruction=system_prompt
+        )
+
+        contents = []
+        if history:
+            for msg in history[-10:]:
+                contents.append(self._Content(
+                    role="user" if msg.get("role") == "user" else "model",
+                    parts=[self._Part.from_text(msg.get("content", ""))]
+                ))
+
+        contents.append(self._Content(
+            role="user",
+            parts=[self._Part.from_text(message)]
+        ))
+
+        response = model.generate_content(
+            contents,
+            generation_config={
+                "temperature": settings.DEFAULT_TEMPERATURE,
+                "max_output_tokens": settings.DEFAULT_MAX_TOKENS,
+            },
+            stream=True
+        )
+
+        for chunk in response:
+            if chunk.text:
+                yield chunk.text
+
     async def chat_stream(
         self,
         agent: Agent,
