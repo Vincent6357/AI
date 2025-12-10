@@ -1,26 +1,23 @@
 """
 Vertex AI service for chat and embeddings
+Imports are done lazily to avoid startup failures
 """
 import logging
-from typing import AsyncGenerator, Optional
-import vertexai
-from vertexai.generative_models import GenerativeModel, Content, Part
-from google.cloud import aiplatform
-
-# RAG API is optional - may not be available in all vertexai versions
-try:
-    from vertexai.preview import rag
-    RAG_AVAILABLE = True
-except ImportError:
-    RAG_AVAILABLE = False
-    rag = None
-    logging.warning("vertexai.preview.rag not available - RAG features will be disabled")
+from typing import AsyncGenerator, Optional, TYPE_CHECKING
 
 from core.config import get_settings
 from models.agent import Agent
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# These will be imported lazily to avoid startup failures
+vertexai = None
+GenerativeModel = None
+Content = None
+Part = None
+rag = None
+RAG_AVAILABLE = False
 
 
 class VertexAIService:
@@ -29,18 +26,47 @@ class VertexAIService:
     def __init__(self):
         """Initialize Vertex AI - lazy initialization"""
         self._initialized = False
+        self._vertexai = None
+        self._GenerativeModel = None
+        self._Content = None
+        self._Part = None
+        self._rag = None
+        self._rag_available = False
 
     def _ensure_initialized(self):
-        """Lazy initialization of Vertex AI"""
+        """Lazy initialization of Vertex AI - imports modules only when needed"""
         if self._initialized:
             return
+
         try:
-            vertexai.init(
+            # Import Vertex AI modules lazily
+            import vertexai as _vertexai
+            from vertexai.generative_models import GenerativeModel, Content, Part
+
+            self._vertexai = _vertexai
+            self._GenerativeModel = GenerativeModel
+            self._Content = Content
+            self._Part = Part
+
+            # Try to import RAG API (optional)
+            try:
+                from vertexai.preview import rag
+                self._rag = rag
+                self._rag_available = True
+                logger.info("Vertex AI RAG API available")
+            except ImportError:
+                self._rag_available = False
+                logger.warning("vertexai.preview.rag not available - RAG features disabled")
+
+            # Initialize Vertex AI
+            self._vertexai.init(
                 project=settings.GCP_PROJECT_ID,
                 location=settings.VERTEX_AI_LOCATION
             )
+
             self._initialized = True
-            logger.info("Vertex AI initialized successfully")
+            logger.info(f"Vertex AI initialized successfully (project={settings.GCP_PROJECT_ID}, location={settings.VERTEX_AI_LOCATION})")
+
         except Exception as e:
             logger.error(f"Failed to initialize Vertex AI: {e}")
             raise
@@ -69,8 +95,8 @@ class VertexAIService:
             # Build system prompt with context
             system_prompt = self._build_system_prompt(agent, retrieved_contexts)
 
-            # Initialize model
-            model = GenerativeModel(
+            # Initialize model using lazy-loaded class
+            model = self._GenerativeModel(
                 model_name=agent.settings.model,
                 system_instruction=system_prompt
             )
@@ -125,14 +151,14 @@ INSTRUCTIONS:
         contents = []
 
         for msg in history[-10:]:  # Keep last 10 messages
-            contents.append(Content(
+            contents.append(self._Content(
                 role="user" if msg["role"] == "user" else "model",
-                parts=[Part.from_text(msg["content"])]
+                parts=[self._Part.from_text(msg["content"])]
             ))
 
-        contents.append(Content(
+        contents.append(self._Content(
             role="user",
-            parts=[Part.from_text(current_message)]
+            parts=[self._Part.from_text(current_message)]
         ))
 
         return contents
@@ -149,12 +175,12 @@ INSTRUCTIONS:
             Corpus ID
         """
         self._ensure_initialized()
-        if not RAG_AVAILABLE:
+        if not self._rag_available:
             logger.warning("RAG API not available, skipping corpus creation")
             return f"mock-corpus-{agent_id}"
 
         try:
-            corpus = rag.create_corpus(
+            corpus = self._rag.create_corpus(
                 display_name=f"agent-{agent_id}-{name}",
                 description=f"Knowledge base for agent {name}"
             )
@@ -180,12 +206,12 @@ INSTRUCTIONS:
             chunk_overlap: Overlap between chunks
         """
         self._ensure_initialized()
-        if not RAG_AVAILABLE:
+        if not self._rag_available:
             logger.warning("RAG API not available, skipping file import")
             return
 
         try:
-            rag.import_files(
+            self._rag.import_files(
                 corpus_name=corpus_id,
                 paths=gcs_paths,
                 chunk_size=chunk_size,
@@ -215,14 +241,14 @@ INSTRUCTIONS:
             List of context dicts
         """
         self._ensure_initialized()
-        if not RAG_AVAILABLE:
+        if not self._rag_available:
             logger.warning("RAG API not available, returning empty contexts")
             return []
 
         try:
-            response = rag.retrieval_query(
+            response = self._rag.retrieval_query(
                 rag_resources=[
-                    rag.RagResource(rag_corpus=corpus_id)
+                    self._rag.RagResource(rag_corpus=corpus_id)
                 ],
                 text=query,
                 similarity_top_k=top_k,

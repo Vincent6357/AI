@@ -2,6 +2,8 @@
 Main FastAPI application
 """
 import logging
+import sys
+import os
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -9,22 +11,52 @@ from typing import Optional, Any
 import json
 import uuid
 
-from core.config import get_settings
-from models.user import User, UserRole
-from models.agent import AgentCreate, AgentUpdate
-from models.chat import ChatRequest
-from services.authentication import AuthenticationService
-from services.agent_service import AgentService
-from services.document_service import DocumentService
-from services.chat_service import ChatService
-from services.vertex_ai_service import VertexAIService
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging FIRST
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
 logger = logging.getLogger(__name__)
+logger.info("=" * 50)
+logger.info("Starting Vertex AI RAG Backend...")
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Working directory: {os.getcwd()}")
+logger.info("=" * 50)
+
+# Import configuration
+try:
+    from core.config import get_settings
+    logger.info("Configuration module loaded")
+except Exception as e:
+    logger.error(f"Failed to load configuration: {e}")
+    raise
+
+# Import models
+try:
+    from models.user import User, UserRole
+    from models.agent import AgentCreate, AgentUpdate
+    from models.chat import ChatRequest
+    logger.info("Models loaded")
+except Exception as e:
+    logger.error(f"Failed to load models: {e}")
+    raise
+
+# Import services - these use lazy initialization
+try:
+    from services.authentication import AuthenticationService
+    from services.agent_service import AgentService
+    from services.document_service import DocumentService
+    from services.chat_service import ChatService
+    from services.vertex_ai_service import VertexAIService
+    logger.info("Services modules loaded (lazy init)")
+except Exception as e:
+    logger.error(f"Failed to load services: {e}")
+    raise
 
 # Initialize settings
 settings = get_settings()
+logger.info(f"Settings loaded - Project: {settings.GCP_PROJECT_ID or 'NOT SET'}")
 
 # Create FastAPI app
 app = FastAPI(
@@ -42,19 +74,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services
+# Initialize services (lazy - no GCP calls at startup)
+logger.info("Creating service instances (lazy initialization)...")
 auth_service = AuthenticationService()
 agent_service = AgentService()
 document_service = DocumentService()
 chat_service = ChatService()
-
-# Initialize Vertex AI service (may fail if credentials are not available)
-vertex_ai_service = None
-try:
-    vertex_ai_service = VertexAIService()
-    logger.info("Vertex AI service initialized successfully")
-except Exception as e:
-    logger.warning(f"Vertex AI service initialization failed: {e}. AI features will be limited.")
+vertex_ai_service = VertexAIService()
+logger.info("All service instances created successfully")
+logger.info("=" * 50)
+logger.info("Backend ready to accept requests!")
+logger.info("=" * 50)
 
 
 # Dependency for authentication
@@ -85,11 +115,29 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-# Health check
+# Health check - must return quickly for Cloud Run
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "vertex-rag-backend"}
+    """Health check endpoint - returns immediately without initializing services"""
+    return {
+        "status": "healthy",
+        "service": "vertex-rag-backend",
+        "project": settings.GCP_PROJECT_ID or "not-configured"
+    }
+
+
+# Startup check - more detailed status
+@app.get("/startup")
+async def startup_check():
+    """Detailed startup check - use for debugging"""
+    return {
+        "status": "ready",
+        "gcp_project": settings.GCP_PROJECT_ID or "NOT SET",
+        "region": settings.GCP_REGION,
+        "vertex_location": settings.VERTEX_AI_LOCATION,
+        "use_login": settings.USE_LOGIN,
+        "microsoft_oauth": bool(settings.MICROSOFT_CLIENT_ID and settings.MICROSOFT_TENANT_ID),
+    }
 
 
 # Debug endpoint to check configuration
