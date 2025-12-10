@@ -120,8 +120,19 @@ async def auth_setup():
     # Build MSAL configuration
     authority = f"https://login.microsoftonline.com/{settings.MICROSOFT_TENANT_ID}" if settings.MICROSOFT_TENANT_ID else ""
 
+    # Only enable login if both USE_LOGIN is true AND Microsoft OAuth is properly configured
+    microsoft_oauth_configured = bool(settings.MICROSOFT_CLIENT_ID and settings.MICROSOFT_TENANT_ID)
+    use_login_effective = settings.USE_LOGIN and microsoft_oauth_configured
+
+    if settings.USE_LOGIN and not microsoft_oauth_configured:
+        logger.warning(
+            "USE_LOGIN is enabled but Microsoft OAuth credentials are not configured. "
+            "Please set MICROSOFT_CLIENT_ID and MICROSOFT_TENANT_ID environment variables. "
+            "Login button will be disabled."
+        )
+
     return {
-        "useLogin": settings.USE_LOGIN,
+        "useLogin": use_login_effective,
         "requireAccessControl": settings.REQUIRE_ACCESS_CONTROL,
         "enableUnauthenticatedAccess": settings.ENABLE_UNAUTHENTICATED_ACCESS,
         "msalConfig": {

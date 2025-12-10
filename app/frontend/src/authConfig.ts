@@ -52,19 +52,47 @@ interface AuthSetup {
     };
 }
 
-// Fetch the auth setup JSON data from the API if not already cached
+// Helper to wait for a specified time
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Fetch the auth setup JSON data from the API with retry logic for cold starts
 async function fetchAuthSetup(): Promise<AuthSetup> {
-    try {
-        const response = await fetch("/auth_setup");
-        if (!response.ok) {
+    const maxRetries = 5;
+    const baseDelay = 1000; // 1 second
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch("/auth_setup");
+            if (response.ok) {
+                const data = await response.json();
+                console.log("Auth setup loaded successfully");
+                return data;
+            }
+
+            // If we get a 503 (service unavailable), retry after delay
+            if (response.status === 503 && attempt < maxRetries) {
+                const waitTime = baseDelay * attempt;
+                console.log(`Backend not ready (503), retrying in ${waitTime}ms... (attempt ${attempt}/${maxRetries})`);
+                await delay(waitTime);
+                continue;
+            }
+
             console.warn(`auth setup response was not ok: ${response.status}, using defaults`);
             return getDefaultAuthSetup();
+        } catch (error) {
+            // Network error - backend might still be starting up
+            if (attempt < maxRetries) {
+                const waitTime = baseDelay * attempt;
+                console.log(`Failed to fetch auth setup, retrying in ${waitTime}ms... (attempt ${attempt}/${maxRetries})`, error);
+                await delay(waitTime);
+                continue;
+            }
+            console.warn("Failed to fetch auth setup after all retries, using defaults:", error);
+            return getDefaultAuthSetup();
         }
-        return await response.json();
-    } catch (error) {
-        console.warn("Failed to fetch auth setup, using defaults:", error);
-        return getDefaultAuthSetup();
     }
+
+    return getDefaultAuthSetup();
 }
 
 // Default auth setup when backend is not available
