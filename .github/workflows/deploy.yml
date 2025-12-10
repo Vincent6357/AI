@@ -91,8 +91,11 @@ jobs:
             --platform=managed \
             --allow-unauthenticated \
             --memory=2Gi \
-            --cpu=1 \
+            --cpu=2 \
             --timeout=300 \
+            --min-instances=1 \
+            --max-instances=10 \
+            --cpu-boost \
             --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }}" \
             --set-env-vars="GCP_REGION=${{ env.REGION }}" \
             --set-env-vars="GCP_LOCATION=europe-west" \
